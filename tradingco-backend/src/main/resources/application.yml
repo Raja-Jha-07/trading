@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: tradingco-backend
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/tradingco}
+    username: ${DB_USERNAME:tradingco}
+    password: ${DB_PASSWORD:tradingco}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: always
+
+# Application-specific config
+tradingco:
+  security:
+    jwt:
+      # Base64-encoded 256-bit secret. Override in prod via env TRADINGCO_SECURITY_JWT_SECRET.
+      secret: ${TRADINGCO_SECURITY_JWT_SECRET:Y2hhbmdlLW1lLXRoaXMtaXMtYS1kZXYtb25seS1zZWNyZXQtMjU2LWJpdC1rZXk=}
+      access-token-ttl: PT15M
+      refresh-token-ttl: P7D
+  cors:
+    allowed-origins: ${TRADINGCO_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+  market:
+    tick-interval-ms: 1000
+    starting-cash: 100000.00
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    com.tradingco: INFO

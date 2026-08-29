@@ -1,0 +1,14 @@
+# Docker profile — services reachable by container name
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/tradingco
+    username: tradingco
+    password: tradingco
+  data:
+    redis:
+      host: redis
+      port: 6379
+
+tradingco:
+  cors:
+    allowed-origins: http://localhost:3000,http://localhost:5173
