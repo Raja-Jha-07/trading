@@ -1,228 +1,79 @@
-# TradingCo v2 — Paper Trading Platform with a Real Matching Engine
+# Dyvora Health OS
 
-A production-grade mock trading platform built to demonstrate backend engineering depth:
-a **price-time-priority matching engine**, concurrency-safe order execution, JWT auth with
-refresh-token rotation, real-time market data over WebSockets, and a rigorous test suite
-including a **concurrency test that proves the engine never over-fills**.
+A connected clinic operations MVP built from the supplied admin/doctor flow charts and pharmacy/laboratory PDF mockups. React 19, Vite, Node.js/Express, and SQLite. All included patient and clinical records are synthetic demonstration data.
 
-> This is a from-scratch rebuild of the original TradingCo, re-centred on backend
-> architecture and correctness rather than UI.
+## Run locally
 
-[![CI](https://github.com/Raja-Jha-07/TradingCo-v2/actions/workflows/ci.yml/badge.svg)](../../actions)
+Requires Node.js 22.13+ (Node 24 LTS recommended; verified here on Node 25.9).
 
----
-
-## Why this project is different
-
-Most paper-trading demos "simulate" fills with a random price. This one runs an actual
-**limit order book**: incoming orders match against resting liquidity by price, then by time,
-exactly like a real exchange. That single decision creates the hard, interview-worthy problems
-this codebase solves — concurrency, transactions, idempotency and settlement.
-
-| Capability | How it's demonstrated |
-|---|---|
-| Matching engine | Pure, framework-free `MatchingEngine` with price-time priority |
-| Concurrency safety | Per-symbol locking + a test firing 200 parallel orders at fixed liquidity |
-| Transactions | Order settlement updates cash + positions atomically |
-| Optimistic locking | `@Version` on `Account` and `Position` guards concurrent writes |
-| Idempotency | `idempotencyKey` makes order submission safe to retry |
-| Auth | JWT access tokens + rotating, revocable refresh tokens |
-| Real-time | STOMP-over-SockJS live quote streaming |
-| Observability | Actuator, Prometheus metrics, structured JSON logs |
-| Quality gates | JUnit 5 + Mockito + Testcontainers, GitHub Actions CI |
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|---|---|
-| Backend | Java 21, Spring Boot 3.3 |
-| Security | Spring Security, JWT (jjwt), BCrypt |
-| Persistence | Spring Data JPA, PostgreSQL 16, Flyway migrations |
-| Real-time | Spring WebSocket, STOMP over SockJS |
-| Caching | Redis 7 (configured for shared state / horizontal scale) |
-| Docs | springdoc-openapi (Swagger UI) |
-| Testing | JUnit 5, Mockito, Testcontainers |
-| Frontend | React 18, TypeScript, Vite, Zustand, @stomp/stompjs |
-| Ops | Docker, Docker Compose, GitHub Actions |
-
----
-
-## Architecture
-
-Domain-driven, package-by-feature. Each module owns its controller → service → repository slice.
-
-```
-tradingco-backend/src/main/java/com/tradingco/
-├── auth/         JWT, refresh tokens, security principal
-├── user/         User + roles
-├── instrument/   Tradable symbols
-├── market/       Simulated prices + WebSocket publisher
-├── matching/     ⭐ Order book + matching engine (framework-free core)
-├── order/        Order lifecycle, settlement orchestration
-├── portfolio/    Accounts (cash) + positions with optimistic locking
-├── common/       Base entity, RFC 7807 errors, rate limiting
-└── config/       Security, WebSocket, OpenAPI, properties
-```
-
-### Order flow (sequence)
-
-```mermaid
-sequenceDiagram
-    actor U as User
-    participant API as OrderController
-    participant OS as OrderService (@Transactional)
-    participant MS as MatchingService (per-symbol lock)
-    participant E as MatchingEngine (pure)
-    participant DB as PostgreSQL
-
-    U->>API: POST /orders (idempotencyKey)
-    API->>OS: placeOrder()
-    OS->>OS: idempotency + buying-power checks
-    OS->>DB: persist order (NEW)
-    OS->>MS: submit(symbol, taker)
-    MS->>MS: acquire symbol lock
-    MS->>E: match(book, taker)
-    E-->>MS: fills
-    MS->>MS: release lock
-    OS->>DB: settle — update cash, positions, trades (@Version)
-    OS-->>U: OrderView (FILLED / PARTIALLY_FILLED / REJECTED)
-```
-
-### The concurrency strategy (key design decision)
-
-Matching for a given symbol is **serialized by a per-symbol `ReentrantLock`** inside
-`MatchingService`. This guarantees two orders for the same symbol are never matched at the
-same time, so a resting order can never be double-filled. Settlement then writes to the
-database under a transaction, with **optimistic locking (`@Version`)** on `Account` and
-`Position` as a second layer of protection against concurrent balance updates.
-
-- **Why optimistic over pessimistic?** Contention on a single account is low (a user rarely
-  fires many simultaneous orders), so optimistic locking avoids holding DB row locks and
-  scales better. Under the rare conflict, the transaction fails fast and can be retried.
-- **Why a per-symbol in-memory lock?** The order book is an in-memory structure; a lightweight
-  lock is far cheaper than round-tripping to the database for every match, and it keeps the
-  matching hot path microsecond-fast.
-
-### Idempotency
-
-Every order may carry an `idempotencyKey`. A repeated key returns the **original** order
-instead of creating a second one — so network retries never double-book or double-charge.
-
-### Market maker liquidity
-
-So a lone user always receives realistic fills, a synthetic market maker seeds resting bids
-and asks around the current simulated price. Fills against the market maker settle only the
-real (taker) account; fills between two real users settle both sides.
-
----
-
-## Running locally
-
-### Prerequisites
-- Java 21+, Node 20+, Docker & Docker Compose
-
-### Option A — everything in Docker (recommended)
-
-```bash
-docker-compose up --build -d
-```
-
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8080
-- Swagger UI: http://localhost:8080/swagger-ui.html
-
-### Option B — local dev with hot reload
-
-```bash
-# 1. Start Postgres + Redis
-docker-compose up postgres redis -d
-
-# 2. Backend
-cd tradingco-backend
-mvn spring-boot:run          # http://localhost:8080
-
-# 3. Frontend
-cd tradingco-frontend
+```powershell
 npm install
-npm run dev                  # http://localhost:5173
+npm run build
+npm start
 ```
 
-Register an account in the UI — it's funded with simulated cash automatically — then place
-market or limit orders and watch positions and P&L update live.
+Open http://127.0.0.1:4000. For development, use `npm run dev` and open http://127.0.0.1:5173. The Vite development server proxies `/api` to Node on port 4000.
 
----
+### Demo access
 
-## Testing
+Password for every demo account: `Dyvora@2026`.
 
-```bash
-cd tradingco-backend
-mvn test                     # unit tests (no Docker needed)
-mvn verify                   # + Testcontainers integration tests (needs Docker)
+| Account                  | Role                               |
+| ------------------------ | ---------------------------------- |
+| admin@dyvora.local       | Administration                     |
+| doctor@dyvora.local      | Doctor (linked to Dr. Aditi Verma) |
+| pharmacy@dyvora.local    | Pharmacist                         |
+| lab@dyvora.local         | Laboratory technician              |
+| pathologist@dyvora.local | Pathologist                        |
+
+The login page has role shortcuts. Demo data is seeded only when the database has no users; subsequent restarts preserve changes. Data is stored in `data/dyvora.sqlite`, including uploaded report bytes. The directory is excluded from Git. Demo credentials are intentionally public and are for local demonstration only.
+
+## Implemented workflows
+
+- **Administration:** dashboard with actual stored counts and a seven-day activity chart; patient registration/search/editing; doctor registration, fees and availability; appointments with conflict prevention; daily tokens; queue check-in, calling and cancellation; consultation/prescription monitoring; billing; CSV reports; users, roles and account deactivation; clinic settings; audit trail; communication drafts.
+- **Doctor:** patient history and unified timeline; allergies; recorded vitals; presenting complaint, clinician-entered diagnosis, care plan and follow-up; signed consultations; multi-medicine prescriptions with quantity and free-text dose/route/frequency/duration; lab ordering/review; transcribed radiology reports, image/PDF attachments and assigned-doctor review.
+- **Pharmacy:** medicine catalog and clinic-defined sale policy; batch quantities, costs, location and expiry; stock/expiry alerts; prescription review and dispensing; counter billing; supplier management; purchase orders and full-order receiving; purchase invoices; stock ledger; signed adjustments; location transfers; sale returns with credits and quarantining; bounded refund settlement recording.
+- **Laboratory:** test catalog and pricing; multi-test orders and urgency; sample IDs/printable labels; collection, processing, manually entered results and reference ranges; authenticated PDF/PNG/JPEG report attachments; approval, verification and release; printable released reports.
+- **Billing:** consultation and laboratory invoices created from their workflows; medicine invoices priced on the server; partial and full payment recording; tax from medicine catalog; credits/refund balances; printable invoices and CSV exports. Payment recording does not move money through a payment gateway.
+- **Interface:** responsive desktop/tablet/mobile layouts, keyboard search, paginated tables, status filters, empty states, modal focus management, accessible labels, notifications derived from data, print views and CSV downloads.
+
+### Connected care journey
+
+1. Register a patient and book a doctor appointment.
+2. Check in from Appointments, then call the patient from Live queue.
+3. Open Consult, enter the clinical assessment, add medicines with explicit instructions, and sign. A consultation invoice is created; the prescription appears in the pharmacy queue.
+4. Review the prescription and allergies. Dispense to allocate first-expiring valid batches, deduct stock and create a medicine invoice atomically.
+5. Record payment in Billing & payments. Counter sales only allow medicines explicitly configured as Non-prescription by clinic staff; prescription-required medicines need a signed prescription.
+6. Create lab orders. The system prices selected tests and creates a lab invoice. A technician collects the sample, starts processing and submits entered results. A pathologist or administrator verifies and releases the report.
+7. View the patient timeline to review consultations, prescriptions and released lab results. Review imaging reports in Laboratory > Imaging review.
+
+## Validation
+
+```powershell
+npm test
+npm run build
+npx playwright install chromium
+npm run test:ui
 ```
 
-Highlights:
-- `MatchingEngineTest` — price-time priority, partial fills, market sweeps
-- `MatchingConcurrencyTest` — **200 parallel buyers vs fixed liquidity; asserts zero over-fill**
-- `TradingFlowIntegrationTest` — full register → order → portfolio flow on real PostgreSQL
-  (auto-skips when Docker is unavailable)
+Integration tests use isolated in-memory databases and exercise authorization, appointment transitions/conflicts, consultation signing, transactional stock rollback, duplicate dispensing, expiry-aware allocation, server pricing, payments/credits/refunds, laboratory approval permissions, purchasing, transfers, imaging review and authenticated attachments. UI checks launch an isolated browser against a separate in-memory server on port 4001. Screenshots go to `playwright-output/`.
 
----
+## Configuration
 
-## API overview
+| Variable       | Default            | Purpose                                                |
+| -------------- | ------------------ | ------------------------------------------------------ |
+| PORT           | 4000               | Local API/application port                             |
+| DB_PATH        | data/dyvora.sqlite | SQLite database location                               |
+| DEMO_MODE      | true               | Set to false for an empty clinic installation          |
+| ADMIN_PASSWORD | demo password      | Required for first initialization with DEMO_MODE=false |
+| SECURE_COOKIE  | false              | Set true only behind HTTPS                             |
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| POST | `/api/v1/auth/register` | – | Create a funded account |
-| POST | `/api/v1/auth/login` | – | Get access + refresh tokens |
-| POST | `/api/v1/auth/refresh` | – | Rotate tokens |
-| POST | `/api/v1/auth/logout` | – | Revoke a refresh token |
-| GET | `/api/v1/instruments` | – | List tradable symbols |
-| GET | `/api/v1/market/quotes` | – | Current quotes snapshot |
-| GET | `/api/v1/orderbook/{symbol}` | – | Top-of-book depth |
-| POST | `/api/v1/orders` | ✅ | Place a market/limit order |
-| GET | `/api/v1/orders` | ✅ | List your orders |
-| GET | `/api/v1/portfolio` | ✅ | Cash, holdings and live P&L |
+To initialize without demonstration records, use a **new database path** and set `DEMO_MODE=false` and a strong `ADMIN_PASSWORD` before first launch. This does not erase an existing database. The initial account is admin@dyvora.local. The server binds to loopback; public hosting requires an explicitly configured HTTPS reverse proxy and deployment review. The public demo login shortcuts must also be removed/disabled before operational use.
 
-WebSocket: connect to `/ws` (SockJS) and subscribe to `/topic/quotes`.
+## Current boundaries
 
----
+This is an executable MVP, not a certified clinical system. Clinical decisions and medicine policies are entered by authorized staff. It does not generate medical advice, interaction checks, dose calculations or clinical reference ranges.
 
-## AWS deployment plan
+The following need additional implementation/integration: SMS/WhatsApp/email delivery; payment gateways; insurance, e-prescribing and regulatory integrations; barcode scanner hardware/encoded labels; DICOM/PACS diagnostic viewers; external lab analyzers; automated drug databases; automated backups/restore; multi-tenant branches; formal data retention, encryption-at-rest/key management, MFA/SSO, consent and jurisdiction-specific compliance. Communication drafts are explicitly labelled unsent. Inventory bulk import, held POS carts, supplier-side purchase returns/exchanges and advanced GST filing reports from the reference mockups remain future enhancements. Uploaded files have size/type checks and authenticated access; antivirus scanning is not included.
 
-The app is written to be **12-factor and stateless** (stateless JWT auth, Redis for shared
-state) so it scales horizontally behind a load balancer.
-
-| Concern | AWS service |
-|---|---|
-| Application | ECS Fargate (containerized Spring Boot, 2+ tasks) |
-| Database | RDS PostgreSQL |
-| Cache / shared state | ElastiCache for Redis |
-| Ingress | Application Load Balancer (sticky sessions not required) |
-| Secrets | Secrets Manager (`TRADINGCO_SECURITY_JWT_SECRET`, DB creds) |
-| Logs & metrics | CloudWatch Logs (JSON logs) + Prometheus scrape of `/actuator/prometheus` |
-
-Required environment variables in production:
-
-```
-DB_URL, DB_USERNAME, DB_PASSWORD
-REDIS_HOST, REDIS_PORT
-TRADINGCO_SECURITY_JWT_SECRET   # base64-encoded 256-bit key
-TRADINGCO_CORS_ALLOWED_ORIGINS
-SPRING_PROFILES_ACTIVE=prod
-```
-
----
-
-## Known simplifications (honest scope)
-
-- The matching happens in memory and settlement in the database within the same request;
-  a durable event log / write-ahead approach would make the two fully atomic across a crash.
-  For a paper-trading context this trade-off is acceptable and documented deliberately.
-- The market data feed is a random-walk simulation, not a real exchange feed.
-- Payment/funding is simulated (accounts are seeded with virtual cash).
-
-## License
-
-MIT
+See [architecture.md](architecture.md) for the service/data design and important invariants.

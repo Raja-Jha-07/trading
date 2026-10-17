@@ -1,26 +1,7 @@
-# Java / Maven
-target/
-*.class
-*.jar
-!.mvn/wrapper/maven-wrapper.jar
-
-# Node
 node_modules/
 dist/
-dist-ssr/
-*.local
-
-# Env & secrets
+data/
 .env
-.env.*
-!.env.example
-
-# IDE / OS
-.idea/
-.vscode/*
-!.vscode/extensions.json
-*.iml
-.DS_Store
-Thumbs.db
-
-*.tsbuildinfo
+*.log
+reference/
+playwright-output/
